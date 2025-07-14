@@ -1,0 +1,54 @@
+// Cedar Schema for Support Issue System
+
+// Entity Types
+entity User = {
+  "email": String,
+  "name": String,
+  "role": String, // "customer", "agent", "admin"
+  "department"?: String,
+  "isActive": Bool,
+};
+
+entity Issue = {
+  "title": String,
+  "description": String,
+  "status": String, // "open", "in_progress", "resolved", "closed"
+  "priority": String, // "low", "medium", "high", "critical"
+  "category": String, // "bug", "feature_request", "question", "incident"
+  "createdAt": String,
+  "updatedAt": String,
+  "assignedTo"?: String,
+};
+
+entity Comment = {
+  "content": String,
+  "createdAt": String,
+  "isInternal": Bool, // true for internal agent notes, false for customer-visible
+};
+
+entity Organization = {
+  "name": String,
+  "tier": String, // "free", "premium", "enterprise"
+  "isActive": Bool,
+};
+
+entity Team = {
+  "name": String,
+  "department": String,
+  "isActive": Bool,
+};
+
+// Action Types
+action ViewIssue, CreateIssue, UpdateIssue, DeleteIssue, AssignIssue;
+action AddComment, ViewComment, EditComment, DeleteComment;
+action ViewInternalNotes, AddInternalNote;
+action ManageUsers, ViewUsers;
+action ViewReports, ExportData;
+
+// Namespace for the support system
+namespace SupportSystem {
+  
+  // Common attributes that can be referenced in policies
+  common PersonType = { "department": String, "role": String };
+  
+}
