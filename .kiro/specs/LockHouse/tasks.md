@@ -1,18 +1,19 @@
 # Implementation Plan
 
 - [ ] 1. Set up project structure and core interfaces
-  - Create Go module structure for LockHouse KrakenD plugin
-  - Define core interfaces for CedarlingPlugin, ResultProcessor, PolicyEvaluator, and AuditLogger
-  - Set up dependency injection framework and configuration management
+  - Create Go module structure for LockHouse extension to Cedarling KrakenD plugin
+  - Define core interfaces for LockHouseExtension, ResultProcessor, RowFilter, and AuditLogger
+  - Set up integration points with existing Cedarling plugin architecture
   - Create basic project documentation and build scripts
   - _Requirements: 5.1, 5.4_
 
-- [ ] 2. Implement JWT token validation and user context extraction
-  - Create JWT validation module with JWKS support
-  - Implement UserContext struct and token claim extraction
-  - Add token expiration and signature verification
-  - Create unit tests for token validation scenarios
-  - _Requirements: 2.1, 3.3_
+- [ ] 2. Implement integration with existing Cedarling plugin
+  - Study existing Cedarling KrakenD plugin architecture and interfaces
+  - Create integration layer to receive user context from Cedarling plugin
+  - Implement CedarlingContext struct to work with existing user context
+  - Add configuration for LockHouse extension within Cedarling plugin setup
+  - Create unit tests for Cedarling integration
+  - _Requirements: 2.1, 3.3, 5.2_
 
 - [ ] 3. Develop ClickHouse query execution and result processing
   - Implement ClickHouse client integration for query execution
@@ -22,20 +23,20 @@
   - Create comprehensive unit tests for query execution and result processing
   - _Requirements: 2.2, 5.1_
 
-- [ ] 4. Build Cedar policy evaluation engine
-  - Integrate with Cedar policy engine for Go
-  - Implement PolicyEvaluator interface with context building
-  - Create CedarContext struct mapping from user context and row data
-  - Add policy decision caching with TTL support
-  - Implement unit tests for policy evaluation scenarios
+- [ ] 4. Integrate with existing Cedar policy evaluation
+  - Use existing Cedarling policy engine for row-level evaluation
+  - Create RowContext struct mapping from result row data and table metadata
+  - Implement interface to existing Cedarling policy evaluation functions
+  - Add row-specific policy decision logic using existing Cedar engine
+  - Implement unit tests for policy evaluation scenarios with row data
   - _Requirements: 1.1, 1.4, 3.1, 3.2, 3.5_
 
-- [ ] 5. Create policy store integration
-  - Implement PolicyStore interface for Cedarling integration
-  - Add policy retrieval and caching mechanisms
-  - Create policy validation and schema checking
-  - Implement hot reloading of policy changes
-  - Add unit tests for policy store operations
+- [ ] 5. Leverage existing policy store integration
+  - Use existing Cedarling policy store for policy retrieval
+  - Create interface to existing policy caching mechanisms
+  - Implement ClickHouse-specific policy filtering and selection
+  - Add table-specific policy identification logic
+  - Create unit tests for policy store integration with ClickHouse context
   - _Requirements: 1.2, 1.3_
 
 - [ ] 6. Implement result filtering and row-level access control
@@ -62,12 +63,12 @@
   - Add unit tests for audit logging functionality
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5_
 
-- [ ] 9. Create KrakenD plugin integration
-  - Implement KrakenD plugin interface and request/response handling
-  - Add HTTP middleware for request interception and processing
-  - Create plugin configuration and initialization logic
-  - Implement error handling and response formatting
-  - Add integration tests for KrakenD plugin functionality
+- [ ] 9. Configure LockHouse extension within existing Cedarling KrakenD plugin
+  - Configure existing Cedarling KrakenD plugin to use LockHouse extension
+  - Add LockHouse-specific configuration options to Cedarling plugin config
+  - Implement extension registration and initialization within Cedarling
+  - Create ClickHouse endpoint configuration for the existing plugin
+  - Add integration tests for LockHouse extension within Cedarling plugin
   - _Requirements: 2.1, 5.2_
 
 - [ ] 10. Implement caching layer for performance optimization
@@ -120,7 +121,7 @@
 
 - [ ] 16. Final integration testing and optimization
   - Perform end-to-end system testing with realistic workloads
-  - Optimize query transformation performance for large datasets
+  - Optimize result filtering performance for large datasets
   - Validate security controls with penetration testing
   - Test failover scenarios and disaster recovery
   - Conduct user acceptance testing with sample applications

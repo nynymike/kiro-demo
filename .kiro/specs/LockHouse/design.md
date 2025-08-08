@@ -2,11 +2,11 @@
 
 ## Overview
 
-The LockHouse system implements document-level security for ClickHouse databases through a KrakenD proxy integrated with Cedarling policy evaluation. The solution acts as a transparent proxy that executes client queries against ClickHouse without modification, then applies row-level security by evaluating Cedar policies against each individual result row.
+The LockHouse system implements document-level security for ClickHouse databases by extending the existing Cedarling KrakenD plugin with ClickHouse-specific result filtering capabilities. The solution leverages the existing Cedarling plugin for JWT validation and policy evaluation, while adding a specialized component that filters ClickHouse query results based on Cedar policy decisions.
 
-When a client submits a query, the proxy extracts user identity and context from JWT tokens, forwards the original query to ClickHouse unchanged, and receives the complete result set. Each row in the results is then individually evaluated against applicable Cedar policies using the user's context and the row's data attributes. Only rows that pass policy evaluation are included in the final response returned to the client.
+The architecture uses the existing Cedarling KrakenD plugin to handle authentication and policy evaluation, then passes the user context and query results to LockHouse for row-level filtering. When a client submits a query, the Cedarling plugin validates the JWT token and extracts user context. LockHouse then executes the query against ClickHouse unchanged, receives the complete result set, and evaluates each row against Cedar policies using the user context provided by Cedarling. Only rows that pass policy evaluation are included in the final response.
 
-This result-filtering approach ensures that users can only access data they are authorized to view while maintaining the full expressiveness of Cedar policies without the complexity of translating policy logic into SQL constraints.
+This approach leverages the existing Cedarling infrastructure while adding ClickHouse-specific result filtering logic, ensuring users can only access data they are authorized to view without duplicating authentication or policy evaluation functionality.
 
 ## Architecture
 
@@ -15,22 +15,26 @@ This result-filtering approach ensures that users can only access data they are 
 ```mermaid
 graph TB
     Client[Client Application] --> KrakenD[KrakenD Proxy]
-    KrakenD --> CedarlingPlugin[Cedarling Plugin]
+    KrakenD --> CedarlingPlugin[Existing Cedarling Plugin]
+    CedarlingPlugin --> LockHouse[LockHouse Extension]
+    LockHouse --> ClickHouse[ClickHouse Database]
     CedarlingPlugin --> PolicyStore[Cedar Policy Store]
-    CedarlingPlugin --> ClickHouse[ClickHouse Database]
     
     subgraph "KrakenD Proxy Layer"
         KrakenD
         CedarlingPlugin
-        QueryProcessor[Query Processor]
-        PolicyEvaluator[Policy Evaluator]
-        ResultFilter[Result Filter]
+        LockHouse
+    end
+    
+    subgraph "LockHouse Components"
+        ResultProcessor[Result Processor]
+        RowFilter[Row Filter]
+        AuditLogger[Audit Logger]
     end
     
     subgraph "Policy Management"
         PolicyStore
         PolicyCache[Policy Cache]
-        SchemaValidator[Schema Validator]
     end
     
     subgraph "Data Layer"
@@ -38,44 +42,51 @@ graph TB
         MetadataCache[Metadata Cache]
     end
     
-    CedarlingPlugin --> QueryProcessor
-    QueryProcessor --> PolicyEvaluator
-    PolicyEvaluator --> PolicyCache
-    PolicyEvaluator --> ResultFilter
-    ResultFilter --> ClickHouse
+    LockHouse --> ResultProcessor
+    ResultProcessor --> RowFilter
+    RowFilter --> AuditLogger
+    CedarlingPlugin --> PolicyCache
 ```
 
 ### Component Interaction Flow
 
 1. **Request Reception**: KrakenD receives SQL query with JWT authentication
-2. **Identity Extraction**: Cedarling plugin extracts user context from JWT token
-3. **Query Execution**: Original query executes against ClickHouse without modification
-4. **Result Processing**: Each result row is processed for policy evaluation
-5. **Policy Evaluation**: Cedar policies are evaluated against user context and row data
-6. **Result Filtering**: Rows that fail policy evaluation are removed from results
-7. **Response Assembly**: Filtered results are assembled into final response
-8. **Audit Logging**: Access decisions and filtering actions are logged
+2. **Authentication & Authorization**: Existing Cedarling plugin validates JWT and extracts user context
+3. **LockHouse Invocation**: Cedarling plugin passes user context and query to LockHouse extension
+4. **Query Execution**: LockHouse executes original query against ClickHouse without modification
+5. **Result Processing**: Each result row is processed by LockHouse for policy evaluation
+6. **Policy Evaluation**: LockHouse evaluates Cedar policies against user context and row data using Cedarling's policy engine
+7. **Result Filtering**: Rows that fail policy evaluation are removed from results
+8. **Response Assembly**: Filtered results are assembled and returned through Cedarling plugin
+9. **Audit Logging**: Access decisions and filtering actions are logged
 
 ## Components and Interfaces
 
-### KrakenD Cedarling Plugin
+### LockHouse Extension
 
-**Purpose**: Main orchestration component that integrates Cedarling policy evaluation with KrakenD proxy functionality.
+**Purpose**: ClickHouse-specific extension that integrates with the existing Cedarling KrakenD plugin to provide result filtering capabilities.
 
 **Key Responsibilities**:
-- JWT token validation and user context extraction
-- SQL query execution against ClickHouse
-- Result row processing and policy evaluation
-- Result filtering based on policy decisions
-- Audit logging and performance monitoring
+- ClickHouse query execution and result processing
+- Row-level policy evaluation using Cedarling's policy engine
+- Result filtering based on Cedar policy decisions
+- ClickHouse-specific audit logging and performance monitoring
+- Integration with existing Cedarling user context
 
 **Interfaces**:
 ```go
-type CedarlingPlugin interface {
-    ProcessRequest(ctx context.Context, req *ProxyRequest) (*ProxyResponse, error)
-    ValidateToken(token string) (*UserContext, error)
+type LockHouseExtension interface {
+    ProcessClickHouseQuery(ctx *CedarlingContext, query string) (*FilteredResult, error)
     ExecuteQuery(query string) (*QueryResult, error)
-    FilterResults(ctx *UserContext, results *QueryResult) (*FilteredResult, error)
+    FilterResults(ctx *CedarlingContext, results *QueryResult) (*FilteredResult, error)
+    EvaluateRowAccess(ctx *CedarlingContext, row *ResultRow) (*AccessDecision, error)
+}
+
+type CedarlingContext struct {
+    UserContext *UserContext      `json:"user_context"`
+    PolicyStore *PolicyStore      `json:"policy_store"`
+    RequestID   string            `json:"request_id"`
+    Timestamp   time.Time         `json:"timestamp"`
 }
 
 type UserContext struct {
