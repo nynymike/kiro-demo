@@ -111,15 +111,23 @@
   - Add observability documentation and dashboards
   - _Requirements: 4.3, 4.4, 6.4_
 
-- [ ] 15. Create documentation and examples
+- [ ] 15. Create demo environment with sample data and policies
+  - Set up ClickHouse database with employees and projects tables from design examples
+  - Implement the four sample Cedar policies from the design document
+  - Create test users with different roles (Engineering Manager, HR Employee, Public User)
+  - Build demo scenarios that match the filtering examples in the design
+  - Create interactive demo script showing policy evaluation results
+  - _Requirements: 1.1, 1.2, 4.1_
+
+- [ ] 16. Create documentation and examples
   - Write comprehensive API documentation
   - Create policy authoring guide with ClickHouse examples
   - Add deployment and configuration guides
-  - Create example policies for common use cases
+  - Document the demo scenarios and expected results
   - Write troubleshooting and operational guides
   - _Requirements: 1.1, 1.2_
 
-- [ ] 16. Final integration testing and optimization
+- [ ] 17. Final integration testing and optimization
   - Perform end-to-end system testing with realistic workloads
   - Optimize result filtering performance for large datasets
   - Validate security controls with penetration testing

@@ -8,6 +8,238 @@ The architecture uses the existing Cedarling KrakenD plugin to handle authentica
 
 This approach leverages the existing Cedarling infrastructure while adding ClickHouse-specific result filtering logic, ensuring users can only access data they are authorized to view without duplicating authentication or policy evaluation functionality.
 
+## Example Walkthrough
+
+### Sample ClickHouse Data
+
+**employees table:**
+```sql
+CREATE TABLE employees (
+    id UInt32,
+    name String,
+    department String,
+    salary UInt32,
+    manager_id Nullable(UInt32),
+    security_level String
+) ENGINE = MergeTree() ORDER BY id;
+
+INSERT INTO employees VALUES
+(1, 'Alice Johnson', 'Engineering', 95000, NULL, 'public'),
+(2, 'Bob Smith', 'Engineering', 85000, 1, 'internal'),
+(3, 'Carol Davis', 'HR', 75000, NULL, 'confidential'),
+(4, 'David Wilson', 'Finance', 90000, NULL, 'restricted'),
+(5, 'Eve Brown', 'Engineering', 80000, 1, 'internal');
+```
+
+**projects table:**
+```sql
+CREATE TABLE projects (
+    id UInt32,
+    name String,
+    department String,
+    budget UInt32,
+    classification String,
+    owner_id UInt32
+) ENGINE = MergeTree() ORDER BY id;
+
+INSERT INTO projects VALUES
+(1, 'Web Platform', 'Engineering', 500000, 'internal', 1),
+(2, 'Mobile App', 'Engineering', 300000, 'public', 2),
+(3, 'HR System', 'HR', 200000, 'confidential', 3),
+(4, 'Financial Analytics', 'Finance', 400000, 'restricted', 4),
+(5, 'API Gateway', 'Engineering', 250000, 'internal', 5);
+```
+
+### Sample Cedar Policies
+
+```cedar
+// Policy 1: Users can view employees in their own department
+permit (
+  principal,
+  action == ClickHouseLock::Action::"Select",
+  resource
+) when {
+  resource.table == "employees" &&
+  resource.department == principal.department
+};
+
+// Policy 2: Managers can view all employees they manage
+permit (
+  principal,
+  action == ClickHouseLock::Action::"Select",
+  resource
+) when {
+  resource.table == "employees" &&
+  resource.manager_id == principal.id
+};
+
+// Policy 3: Users can only view data at or below their security clearance
+permit (
+  principal,
+  action == ClickHouseLock::Action::"Select",
+  resource
+) when {
+  resource.table == "employees" &&
+  (
+    (principal.security_clearance == "restricted") ||
+    (principal.security_clearance == "confidential" && resource.security_level in ["public", "internal", "confidential"]) ||
+    (principal.security_clearance == "internal" && resource.security_level in ["public", "internal"]) ||
+    (principal.security_clearance == "public" && resource.security_level == "public")
+  )
+};
+
+// Policy 4: Project access based on department and classification
+permit (
+  principal,
+  action == ClickHouseLock::Action::"Select",
+  resource
+) when {
+  resource.table == "projects" &&
+  resource.department == principal.department &&
+  (
+    (principal.security_clearance == "restricted") ||
+    (principal.security_clearance == "confidential" && resource.classification in ["public", "internal", "confidential"]) ||
+    (principal.security_clearance == "internal" && resource.classification in ["public", "internal"]) ||
+    (principal.security_clearance == "public" && resource.classification == "public")
+  )
+};
+```
+
+### Example Filtering Scenarios
+
+#### Scenario 1: Engineering Manager Query
+**User Context:**
+```json
+{
+  "sub": "alice@company.com",
+  "id": 1,
+  "department": "Engineering",
+  "security_clearance": "internal",
+  "role": "manager"
+}
+```
+
+**Query:** `SELECT * FROM employees;`
+
+**ClickHouse Raw Results:**
+```
+id | name         | department  | salary | manager_id | security_level
+1  | Alice Johnson| Engineering | 95000  | NULL       | public
+2  | Bob Smith    | Engineering | 85000  | 1          | internal  
+3  | Carol Davis  | HR          | 75000  | NULL       | confidential
+4  | David Wilson | Finance     | 90000  | NULL       | restricted
+5  | Eve Brown    | Engineering | 80000  | 1          | internal
+```
+
+**Policy Evaluation per Row:**
+- Row 1 (Alice): ✅ Same department + public security level
+- Row 2 (Bob): ✅ Same department + internal security level + Alice is manager
+- Row 3 (Carol): ❌ Different department (HR)
+- Row 4 (David): ❌ Different department (Finance)  
+- Row 5 (Eve): ✅ Same department + internal security level + Alice is manager
+
+**Filtered Results:**
+```
+id | name         | department  | salary | manager_id | security_level
+1  | Alice Johnson| Engineering | 95000  | NULL       | public
+2  | Bob Smith    | Engineering | 85000  | 1          | internal
+5  | Eve Brown    | Engineering | 80000  | 1          | internal
+```
+
+#### Scenario 2: HR Employee Query
+**User Context:**
+```json
+{
+  "sub": "carol@company.com", 
+  "id": 3,
+  "department": "HR",
+  "security_clearance": "confidential",
+  "role": "employee"
+}
+```
+
+**Query:** `SELECT * FROM projects;`
+
+**ClickHouse Raw Results:**
+```
+id | name              | department  | budget | classification | owner_id
+1  | Web Platform      | Engineering | 500000 | internal       | 1
+2  | Mobile App        | Engineering | 300000 | public         | 2  
+3  | HR System         | HR          | 200000 | confidential   | 3
+4  | Financial Analytics| Finance     | 400000 | restricted     | 4
+5  | API Gateway       | Engineering | 250000 | internal       | 5
+```
+
+**Policy Evaluation per Row:**
+- Row 1 (Web Platform): ❌ Different department (Engineering)
+- Row 2 (Mobile App): ❌ Different department (Engineering)
+- Row 3 (HR System): ✅ Same department + confidential clearance allows confidential data
+- Row 4 (Financial Analytics): ❌ Different department (Finance)
+- Row 5 (API Gateway): ❌ Different department (Engineering)
+
+**Filtered Results:**
+```
+id | name      | department | budget | classification | owner_id
+3  | HR System | HR         | 200000 | confidential   | 3
+```
+
+#### Scenario 3: Public Access User Query
+**User Context:**
+```json
+{
+  "sub": "guest@company.com",
+  "id": null,
+  "department": "External",
+  "security_clearance": "public",
+  "role": "guest"
+}
+```
+
+**Query:** `SELECT name, department FROM employees;`
+
+**ClickHouse Raw Results:**
+```
+name         | department
+Alice Johnson| Engineering
+Bob Smith    | Engineering  
+Carol Davis  | HR
+David Wilson | Finance
+Eve Brown    | Engineering
+```
+
+**Policy Evaluation per Row:**
+- Row 1 (Alice): ❌ Different department + only public clearance but Alice is public level
+- Row 2 (Bob): ❌ Different department + internal level exceeds public clearance
+- Row 3 (Carol): ❌ Different department + confidential level exceeds public clearance
+- Row 4 (David): ❌ Different department + restricted level exceeds public clearance
+- Row 5 (Eve): ❌ Different department + internal level exceeds public clearance
+
+**Filtered Results:**
+```
+(No rows returned - guest user has no access to employee data)
+```
+
+### Policy Evaluation Process
+
+For each result row, the system:
+
+1. **Builds Row Context**: Extracts row data into Cedar resource entity
+```json
+{
+  "table": "employees",
+  "id": "2", 
+  "department": "Engineering",
+  "security_level": "internal",
+  "manager_id": "1"
+}
+```
+
+2. **Evaluates Policies**: Tests each applicable policy against user context and row data
+3. **Makes Decision**: Row is included only if at least one policy permits access
+4. **Logs Decision**: Records policy evaluation results for audit
+
+This approach provides fine-grained, policy-driven access control while maintaining query performance and Cedar policy expressiveness.
+
 ## Architecture
 
 ### High-Level Architecture
@@ -352,7 +584,7 @@ namespace ClickHouseLock {
 3. **Query Processing Errors**
    - SQL parsing failure
    - Unsupported query type
-   - Query transformation error
+   - Result processing error
    - ClickHouse execution error
 
 4. **System Errors**
@@ -391,10 +623,10 @@ namespace ClickHouseLock {
 
 ### Unit Testing
 
-1. **Query Processor Tests**
-   - SQL parsing accuracy
-   - Security constraint injection
-   - Query optimization validation
+1. **Result Processor Tests**
+   - Result parsing accuracy
+   - Row filtering logic validation
+   - Performance optimization validation
    - Edge case handling
 
 2. **Policy Evaluator Tests**
@@ -453,7 +685,7 @@ namespace ClickHouseLock {
 
 1. **Latency Benchmarks**
    - Policy evaluation overhead
-   - Query transformation time
+   - Result filtering time
    - Cache hit/miss ratios
    - End-to-end response time
 
