@@ -8,6 +8,29 @@ The architecture uses the existing Cedarling KrakenD plugin to handle authentica
 
 This approach leverages the existing Cedarling infrastructure while adding ClickHouse-specific result filtering logic, ensuring users can only access data they are authorized to view without duplicating authentication or policy evaluation functionality.
 
+## Use Case Scope and Limitations
+
+**LockHouse is optimized for read-only, document-level security use cases with bounded result sizes.** This solution is **not intended for analytics workloads** that process large datasets or require high-throughput aggregations.
+
+### Ideal Use Cases
+- **Document retrieval**: User profiles, customer records, support tickets
+- **Bounded result sets**: Queries returning hundreds to low thousands of rows
+- **Row-level security**: Access control based on user attributes and document properties
+- **Real-time applications**: Interactive dashboards, user-facing applications
+- **Compliance scenarios**: GDPR, HIPAA, or other data privacy requirements
+
+### Not Suitable For
+- **Analytics workloads**: Large-scale data processing, reporting, or business intelligence
+- **Unbounded queries**: Full table scans or queries returning millions of rows
+- **High-throughput scenarios**: Batch processing or ETL operations
+- **Aggregation-heavy workloads**: Complex analytical queries with GROUP BY, window functions
+
+### Performance Characteristics
+- **Memory usage**: Constant memory through streaming result processing
+- **Latency**: Optimized for sub-100ms response times on bounded result sets
+- **Throughput**: Designed for concurrent user queries, not bulk data processing
+- **Scalability**: Horizontal scaling through multiple proxy instances
+
 ## Example Walkthrough
 
 ### Sample ClickHouse Data
@@ -286,11 +309,12 @@ graph TB
 2. **Authentication & Authorization**: Existing Cedarling plugin validates JWT and extracts user context
 3. **LockHouse Invocation**: Cedarling plugin passes user context and query to LockHouse extension
 4. **Query Execution**: LockHouse executes original query against ClickHouse without modification
-5. **Result Processing**: Each result row is processed by LockHouse for policy evaluation
-6. **Policy Evaluation**: LockHouse evaluates Cedar policies against user context and row data using Cedarling's policy engine
-7. **Result Filtering**: Rows that fail policy evaluation are removed from results
-8. **Response Assembly**: Filtered results are assembled and returned through Cedarling plugin
-9. **Audit Logging**: Access decisions and filtering actions are logged
+5. **Streaming Result Processing**: Results are processed in streaming fashion with constant memory usage
+6. **Batch Policy Evaluation**: Multiple rows are batched together for efficient policy evaluation
+7. **Per-Principal Caching**: Policy decisions are cached per user to optimize repeated patterns
+8. **Result Filtering**: Rows that fail policy evaluation are removed from the stream
+9. **Response Assembly**: Filtered results are streamed back through Cedarling plugin
+10. **Audit Logging**: Access decisions and filtering actions are logged asynchronously
 
 ## Components and Interfaces
 
@@ -333,14 +357,14 @@ type UserContext struct {
 
 ### Result Processor
 
-**Purpose**: Processes query results and filters rows based on policy evaluation.
+**Purpose**: Processes query results and filters rows based on policy evaluation with streaming and batching optimizations.
 
 **Key Responsibilities**:
-- Result row parsing and data extraction
-- Row-level policy evaluation coordination
-- Result filtering based on policy decisions
-- Performance optimization for large result sets
-- Support for various ClickHouse data types
+- **Streaming Processing**: Process results in constant memory using streaming patterns
+- **Batch Policy Evaluation**: Group multiple rows for efficient policy evaluation
+- **Row-level Filtering**: Filter individual rows based on policy decisions
+- **Memory Optimization**: Maintain constant memory usage regardless of result set size
+- **ClickHouse Data Type Support**: Handle various ClickHouse data types efficiently
 
 **Interfaces**:
 ```go
