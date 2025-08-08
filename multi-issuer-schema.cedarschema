@@ -1,0 +1,69 @@
+// Cedar Schema for Multi-Issuer Token Authorization
+
+// Token entity types
+entity AccessToken = {
+  "issuer": String,
+  "scopes": Set<String>,
+  "sub": String,
+  "aud": String,
+  "exp": Long,
+  "iat": Long,
+  "token_index": Long, // For referencing specific tokens
+};
+
+entity TxToken = {
+  "issuer": String,
+  "transaction_id": String,
+  "sub": String,
+  "exp": Long,
+  "iat": Long,
+  "token_index": Long,
+};
+
+entity IdToken = {
+  "issuer": String,
+  "sub": String,
+  "aud": String,
+  "exp": Long,
+  "iat": Long,
+  "email"?: String,
+  "name"?: String,
+  "token_index": Long,
+};
+
+entity UserinfoToken = {
+  "issuer": String,
+  "sub": String,
+  "email"?: String,
+  "name"?: String,
+  "token_index": Long,
+};
+
+entity PasskeyAuthenticatorAttestation = {
+  "issuer": String,
+  "sub": String,
+  "authenticator_id": String,
+  "token_index": Long,
+};
+
+// Context entity that holds all tokens
+entity TokenContext = {
+  "access_tokens": Set<AccessToken>,
+  "tx_tokens": Set<TxToken>,
+  "id_tokens": Set<IdToken>,
+  "userinfo_tokens": Set<UserinfoToken>,
+  "passkey_attestations": Set<PasskeyAuthenticatorAttestation>,
+  "all_scopes": Set<String>, // Aggregated scopes from all access tokens
+  "primary_subject": String, // The main subject from the primary token
+};
+
+// Actions for authorization
+action ReadResource, WriteResource, DeleteResource, ExecuteTransaction;
+
+namespace Jans {
+  // Helper functions for scope checking
+  common ScopeCheck = {
+    "required_scopes": Set<String>,
+    "available_scopes": Set<String>
+  };
+}
