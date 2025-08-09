@@ -2,7 +2,7 @@
 
 ## Overview
 
-The LockHouse system implements document-level security for ClickHouse databases by extending the existing Cedarling KrakenD plugin with ClickHouse-specific result filtering capabilities. The solution leverages the existing Cedarling plugin for JWT validation and policy evaluation, while adding a specialized component that filters ClickHouse query results based on Cedar policy decisions.
+The LockHouse system implements document-level security for ClickHouse databases by extending the existing Cedarling KrakenD plugin with ClickHouse-specific result filtering capabilities. The solution leverages the existing Krakend Cedarling plugin for JWT validation and policy evaluation for the ClickHouse REST endpoint, while adding a specialized component that filters ClickHouse query results based on Cedar policy decisions.
 
 The architecture uses the existing Cedarling KrakenD plugin to handle authentication and policy evaluation, then passes the user context and query results to LockHouse for row-level filtering. When a client submits a query, the Cedarling plugin validates the JWT token and extracts user context. LockHouse then executes the query against ClickHouse unchanged, receives the complete result set, and evaluates each row against Cedar policies using the user context provided by Cedarling. Only rows that pass policy evaluation are included in the final response.
 
@@ -305,16 +305,26 @@ graph TB
 
 ### Component Interaction Flow
 
+**LockHouse implements a two-stage authorization process:**
+
+**Stage 1: Request Authorization**
 1. **Request Reception**: KrakenD receives SQL query with JWT authentication
-2. **Authentication & Authorization**: Existing Cedarling plugin validates JWT and extracts user context
-3. **LockHouse Invocation**: Cedarling plugin passes user context and query to LockHouse extension
-4. **Query Execution**: LockHouse executes original query against ClickHouse without modification
-5. **Streaming Result Processing**: Results are processed in streaming fashion with constant memory usage
-6. **Batch Policy Evaluation**: Multiple rows are batched together for efficient policy evaluation
-7. **Per-Principal Caching**: Policy decisions are cached per user to optimize repeated patterns
-8. **Result Filtering**: Rows that fail policy evaluation are removed from the stream
-9. **Response Assembly**: Filtered results are streamed back through Cedarling plugin
-10. **Audit Logging**: Access decisions and filtering actions are logged asynchronously
+2. **JWT Validation**: Existing Cedarling plugin validates JWT tokens and extracts user context
+3. **Request Authorization**: Cedarling evaluates Cedar policies to determine if the user is authorized to make this type of request to this REST endpoint
+4. **Authorization Gate**: If request authorization fails, the request is denied immediately without executing the query
+
+**Stage 2: Data-Level Authorization**
+5. **Query Execution**: LockHouse executes original query against ClickHouse without modification
+6. **Streaming Result Processing**: Results are processed in streaming fashion with constant memory usage
+7. **Batch Policy Evaluation**: Multiple rows are batched together for efficient policy evaluation against Cedar policies
+8. **Per-Principal Caching**: Policy decisions are cached per user to optimize repeated patterns
+9. **Result Filtering**: Rows that fail data-level policy evaluation are removed from the stream
+10. **Response Assembly**: Filtered results are streamed back through Cedarling plugin
+11. **Audit Logging**: Both request authorization and data filtering decisions are logged asynchronously
+
+This dual authorization approach ensures that:
+- **Request-level security**: Users can only access endpoints they're authorized for based on JWT claims and REST endpoint policies
+- **Data-level security**: Users only see specific data rows they're authorized to view based on document attributes and user context
 
 ## Components and Interfaces
 
